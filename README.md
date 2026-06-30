@@ -6,35 +6,49 @@
 
 | Metric                                   | Result                                                                                     |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Production SPAs shipped                  | 7 (intake, declaration, client-docs, client-mgmt, case-type-admin, LMS-admin, LMS-student) |
+| Production SPAs shipped                  | 8 (intake, declaration, client-docs, client-mgmt, case-type-admin, employee-mgmt, LMS-admin, LMS-student) |
 | AWS Lambdas owned                        | 5 (three-day-process, attendance, get-client-info, LMS-lambda, intake-API)                 |
-| USCIS forms unified into a single intake | 6 (I-130, I-485, I-864, I-131, I-765, G-28)                                                |
-| API modules owned in core platform       | 5+ (documentType, clientFolder, courses+S3, document-route, baseCreateSchema)              |                                                         |
+| USCIS forms wired into the intake SPA    | 7 (I-130, I-485, I-864, I-131, I-765, I-90, G-28)                                          |
+| API modules owned in core platform       | 7+ (documentType, clientFolder, courses+S3, document-type-route, company-file, baseCreateSchema) |
 ---
 
 ## Applications Worked On
 
-### 1. USCIS Intake Form Platform
+### 1. USCIS Multi-Form Intake Platform (`intake-spa` + `uscis-intake-api`)
 
-**May 2026 | Meneses Law PLLC**
+**Mar – Jun 2026 | Meneses Law PLLC**
 
-Designed and built a unified intake system that collects client information once through a guided wizard, then maps the answers to multiple USCIS forms (I-130, I-485, I-864, I-131, I-765, G-28) — replacing a fragmented per-form intake workflow. Reduced paralegal data-entry duplication and gave clients a single coherent experience across an entire family-based filing.
+Designed and built a unified intake system that collects client information once, then maps the answers onto multiple USCIS forms (I-130, I-485, I-864, I-131, I-765, I-90, G-28) — replacing a fragmented per-form workflow. What started as a single I-864 sponsorship wizard grew into a multi-form platform: a card-grid landing page launches each supported form, and the `case_intakes` backend (`uscis-intake-api`) handles draft/submit/PDF generation per form type. Reduced paralegal data-entry duplication and gave clients one coherent experience across an entire family-based filing.
 
-- Built a 7-step React Hook Form wizard ( Petitioner → Beneficiaries → Financial/I-864 → Sponsorship Outlook → Joint Sponsor 1 → Joint Sponsor 2 → Review) with free step-jumping and validation deferred to the Review page
-- Implemented a reactive I-864 sponsorship allocator: applies 2025 HHS poverty guidelines, factors in assets-as-income-substitute, prioritizes the principal beneficiary, distributes the remainder across up to 2 joint sponsors, and renders a terminal "filing cannot proceed" state when 3 sponsors still can't cover all beneficiaries
-- Made joint-sponsor wizard steps allocator-driven — Joint Sponsor 1 appears only when needed, Joint Sponsor 2 only when Joint Sponsor 1 is still insufficient, and slots auto-clear when the petitioner's updated income makes them redundant
-- Aligned frontend Zod schemas 1:1 with backend Pydantic models across petitioner / beneficiary / I-130 / I-485 / I-864 / shared enums, eliminating silent submit 422s
-- Killed a class of data-integrity bugs by replacing stubbed joint-sponsor fields (gender, biographic info, LPR details) with real user-collected data and adding lock-in tests so the stubs can't reappear
-- Wrote shared input sanitizers (E.164 phone normalization, ZIP+4 formatting, digit-only IDs, lowercased emails) applied uniformly across petitioner / beneficiary / joint-sponsor surfaces
-- Rebuilt the Review page from a 44-line stub into a section-by-section summary with pencil "Edit this section" jumps that resolve step IDs dynamically so the Review stays correct as wizard steps reorder
-- Added a `DEV`-gated debug panel surfacing live RHF draft, serialized BE payload, submit-schema validation issues, and allocator output — gated behind `import.meta.env.DEV` so it never ships to prod
-- Shipped 48 passing vitest cases covering sanitizers, allocator behavior, and a regression test asserting submits fail when biographic info is missing
+**Frontend (`intake-spa`)**
 
-**Impact:** 6 USCIS forms generated from a single intake, fully reactive sponsorship eligibility engine, FE↔BE schema parity, dynamic per-beneficiary state isolation for multi-applicant filings
+- Integrated the I-130 intake module and redesigned the intake pages to a new Figma spec
+- Redesigned the intake landing page as a responsive card grid with "Coming Soon" tiles for forms still in flight
+- Added the **I-90** (green-card renewal/replacement) intake end-to-end — wizard, client picker, and list view on the `case_intakes` architecture
+- Added the **I-765** employment-authorization intake — validation schemas plus the full work-authorization form
+- Refactored I-131/I-765 to ask their questions inline instead of as separate sections, and brought numbered I-485 Part 9 question labels into the inline flow
+- Matched the backend Travel Update for I-130 beneficiaries (searchable admission codes + prior-entry history)
+- Surfaced generated I-130 PDF downloads under the Petitioner section, labeled by beneficiary, using the server's friendly file names
+- Fixed I-90 submission failures, duplicate records, and client reassignment; fixed I-130 submit blockers, false validation errors, a Beneficiary-section crash, and un-editable beneficiary addresses; spelled out abbreviations in form labels (English & Spanish)
 
-**Next:** localStorage autosave with versioned shape key, real submit handler / API POST wiring, petitioner employment UI page, `address.inCareOf` capture, I-864A household contributor flow, field-level (not section-level) edit jumps from Review
+**Prior I-864 sponsorship engine (carried forward)**
 
-`React` `TypeScript` `React Hook Form` `Zod` `Vite` `Vitest` `TailwindCSS` `React Router` `Pydantic (BE contract)` `Docker` `MongoDB`
+- Reactive I-864 allocator: applies 2025 HHS poverty guidelines, factors in assets-as-income-substitute, prioritizes the principal beneficiary, distributes the remainder across up to 2 joint sponsors, and renders a terminal "filing cannot proceed" state when 3 sponsors still can't cover all beneficiaries
+- Allocator-driven joint-sponsor steps that appear only when needed and auto-clear when the petitioner's updated income makes them redundant
+- Frontend Zod schemas aligned 1:1 with backend Pydantic models, shared input sanitizers (E.164 phone, ZIP+4, digit-only IDs, lowercased emails), a rebuilt section-by-section Review page with dynamic edit-jumps, a `DEV`-gated debug panel, and 48 passing vitest cases
+
+**Backend (`uscis-intake-api`)**
+
+- Added I-90 to the `case_intakes` architecture, including client reassignment via PATCH and a static xfdf baseline mapping
+- Built the standalone I-765 intake (draft, submit, and PDF) end-to-end
+- Derived PDF download filenames from the submitted form data
+- Fixed the I-130 PDF mapper crashing on optional spouse/entry fields, a partial-save 422 on petitioner drafts, and a bug where a PATCH on a SUBMITTED intake silently reverted it to DRAFT
+
+**Impact:** 7 USCIS forms wired into a single intake SPA, reactive I-864 sponsorship eligibility engine, FE↔BE schema parity, per-form draft/submit/PDF pipeline across a shared `case_intakes` backend
+
+**Next:** localStorage autosave with versioned shape key, petitioner employment UI page, `address.inCareOf` capture, I-864A household contributor flow, field-level (not section-level) edit jumps from Review
+
+`React` `TypeScript` `React Hook Form` `Zod` `Vite` `Vitest` `Playwright` `TailwindCSS` `React Router` `Pydantic` `FastAPI (BE)` `pypdf / xfdf` `Docker` `MongoDB`
 
 ---
 
@@ -78,17 +92,19 @@ Frontend for clients to view, request, and upload case documents into the struct
 
 ### 4. Meneses Law Core API ("Voltron")
 
-**Sep 2025 – Feb 2026 | Meneses Law PLLC**
+**Sep 2025 – Jun 2026 | Meneses Law PLLC**
 
-Core Hono-based API serving every internal SPA at the firm. Contributed modules and refactors across the courses/SOPs (LMS), client-folder, document-type, document-route, and admin-UI domains.
+Core Hono-based API serving every internal SPA at the firm. Contributed modules and refactors across the courses/SOPs (LMS), client-folder, document-type, document-route, company-file, and admin-UI domains.
 
 - Built `documentType` and `clientFolder` modules end-to-end to unblock the Admin-UI workstream
+- Built the `company-file` module (+ `company-file-route`) end-to-end for firm-wide document management
+- Renamed `document-route` → `document-type-route` across the module and its consumers to match the corrected domain language
 - Created a shared `baseCreateSchema` used by both Courses and SOPs to eliminate duplicated DTO definitions and drift between sibling resources
 - Implemented S3-backed course creation (presigned uploads + metadata persistence)
 - Refactored the `document_route` module — added `required` field support and removed unused DTOs flagged in review
 - Adjusted the enrollment schema to accept `endTime: null` so the quiz-attempt-time-tracking pipeline could persist in-progress attempts
 
-**Impact:** 5+ API modules owned end-to-end, shared base schema reduced DTO drift across sibling resources, S3-integrated course assets
+**Impact:** 7+ API modules owned end-to-end, shared base schema reduced DTO drift across sibling resources, S3-integrated course assets
 
 `Hono` `Bun` `Prisma` `TypeScript` `AWS S3` `AWS Secrets Manager` `Zod` `JWT (aws-jwt-verify)` `OpenAPI/Swagger`
 
@@ -96,22 +112,41 @@ Core Hono-based API serving every internal SPA at the firm. Contributed modules 
 
 ### 5. Case Type Admin Management SPA
 
-**Jan 2026 | Meneses Law PLLC**
+**Jan – Jun 2026 | Meneses Law PLLC**
 
 Internal admin dashboard for defining and managing case types — the configuration that drives folder/document structure across every other case-management surface. Built the v1 dashboard plus a case-type cloning feature so admins can duplicate similar case types instead of rebuilding from scratch.
 
 - Built Admin Dashboard v1 from a blank repo (React 19 + Vite + Tailwind 4)
 - Implemented drag-and-drop ordering for case-type configuration via `sortablejs`
 - Shipped case-type cloning — admins can duplicate an existing case type as a starting point and tweak from there
+- Built the company-files frontend — new modules, the `document-type-route` rename wired through, and a per-folder template UI matching the `meneses-api` backend work
 - Restructured the project's file/folder layout once the feature surface stabilized
 
-**Impact:** Foundational admin tool for case-type configuration, cloning workflow cuts setup time for similar case types
+**Impact:** Foundational admin tool for case-type configuration, cloning workflow cuts setup time for similar case types, company-files document management surfaced to admins
 
 `React 19` `TypeScript` `Vite` `Tailwind CSS 4` `SortableJS` `Zod` `react-icons`
 
 ---
 
-### 6. Universal Navbar — Stencil Web Component
+### 6. Employee Management SPA
+
+**Jun 2026 | Meneses Law PLLC**
+
+Internal SPA for managing the firm's employees — creating, editing, filtering, and (de)activating staff records, plus the supervisor/role org structure that other internal tools read from. Owned the supervisor + role workstream and the inactive-employee restore flow.
+
+- Added supervisor support — assign a supervisor on creation and change it later from the Edit Employee panel
+- Added a role column with role-based filtering to the employee list
+- Built a restore flow for inactive employees so deactivated staff can be reinstated instead of recreated
+- Made the employee list auto-refresh after create/edit so the grid never shows stale data
+- Fixed the New Employee drawer leaking the previously-opened employee's details on reopen
+
+**Impact:** Supervisor + role org structure manageable from the UI, inactive-employee restore flow, stale-list and drawer-state bugs eliminated
+
+`React` `TypeScript` `Vite` `Formik` `Yup` `Zod` `Tailwind CSS` `lucide-react` `typed-usa-states` `react-hot-toast`
+
+---
+
+### 7. Universal Navbar — Stencil Web Component
 
 **Oct 2025 – Jan 2026 | Meneses Law PLLC**
 
@@ -128,7 +163,7 @@ Shared `<side-header>` web component built with Stencil and consumed by every in
 
 ---
 
-### 7. Learning Management System — Admin + Student + Lambda
+### 8. Learning Management System — Admin + Student + Lambda
 
 **Aug 2025 – Jan 2026 | Meneses Law PLLC**
 
@@ -159,7 +194,7 @@ Internal LMS spanning three repos: admin portal, student-facing SPA, and the AWS
 
 ---
 
-### 8. Attendance Automation Lambda
+### 9. Attendance Automation Lambda
 
 **Nov 2025 – Jan 2026 | Meneses Law PLLC**
 
@@ -176,7 +211,7 @@ Scheduled Lambda that scrapes employee attendance from a third-party portal and 
 
 ---
 
-### 9. Get Client Info Lambda
+### 10. Get Client Info Lambda
 
 **Dec 2025 | Meneses Law PLLC**
 
@@ -193,7 +228,7 @@ Lambda backing the mobile/portal client experience — presigned S3 uploads, doc
 
 ---
 
-### 10. Client Management SPA
+### 11. Client Management SPA
 
 **Oct – Nov 2025 | Meneses Law PLLC**
 
@@ -213,7 +248,7 @@ Internal SPA for browsing and managing the firm's client base — searchable, fi
 
 ---
 
-### 11. Declaration Form SPA
+### 12. Declaration Form SPA
 
 **Sep 2025 | Meneses Law PLLC**
 
@@ -236,12 +271,13 @@ Standalone SPA for collecting client declarations. Built questions 1–8 with mi
 
 ```
 Frontend:       React 18/19 | TypeScript | Vite | Tailwind CSS 4
-                React Hook Form | Zod | React Router | MUI / MUI X DataGrid
-                Mantine | shadcn / Radix | Headless UI | Heroicons | Flowbite
-                Chart.js | Plotly | Recharts | react-hot-toast
+                React Hook Form | Formik | Zod | Yup | React Router
+                MUI / MUI X DataGrid | Mantine | shadcn / Radix | Headless UI
+                Heroicons | lucide-react | Flowbite | Chart.js | Plotly | Recharts | react-hot-toast
 Web Components: Stencil (universal navbar shared across all internal SPAs)
 Backend:        Hono | Bun | Node.js 22 | Prisma | OpenAPI / Swagger
-                JWT (aws-jwt-verify) | Pydantic (consumed contract)
+                FastAPI | Pydantic | pypdf / xfdf (USCIS PDF generation)
+                JWT (aws-jwt-verify)
 Serverless:     AWS Lambda | AWS SAM | esbuild | Puppeteer (@sparticuz/chromium)
                 Selenium (legacy, rewritten)
 AWS:            S3 | Secrets Manager | SNS | STS | Lambda | SAM
@@ -269,11 +305,12 @@ _All listed below are actively in progress — currently studying for and schedu
 
 | Date                | Project                          | Key Contribution                                                                                |
 | ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Mar – May 2026      | USCIS Intake Form Platform       | 6-form unified intake, reactive I-864 allocator, FE↔BE schema parity                            |
+| Mar – Jun 2026      | USCIS Multi-Form Intake Platform | 7-form intake SPA (added I-90 + I-765), card-grid landing, reactive I-864 allocator, per-form PDF pipeline |
+| Jun 2026            | Employee Management SPA          | Supervisor + role org structure, role filtering, inactive-employee restore flow                  |
 | Feb – Mar 2026      | Three-Day Process Lambda         | `folder_templates` as single source of truth, relation-aware doc filtering                      |
 | Sep 2025 – Mar 2026 | Client Documents SPA             | Folder-structure refactor, search/duplicate-request fix, Linux CI casing                        |
-| Sep 2025 – Feb 2026 | Meneses Law Core API ("Voltron") | 5+ modules: document-type, client-folder, courses-S3, baseCreateSchema, document-route refactor |
-| Jan 2026            | Case Type Admin Management SPA   | Admin dashboard v1, drag-drop ordering, case-type cloning                                       |
+| Sep 2025 – Jun 2026 | Meneses Law Core API ("Voltron") | 7+ modules: document-type, client-folder, courses-S3, company-file, document-type-route rename   |
+| Jan – Jun 2026      | Case Type Admin Management SPA   | Admin dashboard v1, drag-drop ordering, case-type cloning, company-files per-folder template UI  |
 | Oct 2025 – Jan 2026 | Universal Navbar (Stencil)       | Shared web component used across every internal Meneses Law SPA                                 |
 | Aug 2025 – Jan 2026 | Learning Management System       | 3-repo product (admin + student + lambda), dashboard aggregations, quiz time tracking           |
 | Nov 2025 – Jan 2026 | Attendance Automation Lambda     | Selenium → Puppeteer rewrite, Secrets Manager integration                                       |
@@ -283,4 +320,4 @@ _All listed below are actively in progress — currently studying for and schedu
 
 ---
 
-_Last updated: May 2026 | 11 projects documented_
+_Last updated: June 2026 | 12 projects documented_
