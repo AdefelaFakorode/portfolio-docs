@@ -7,14 +7,51 @@
 | Metric                                   | Result                                                                                     |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
 | Production SPAs shipped                  | 8 (intake, declaration, client-docs, client-mgmt, case-type-admin, employee-mgmt, LMS-admin, LMS-student) |
-| AWS Lambdas owned                        | 5 (three-day-process, attendance, get-client-info, LMS-lambda, intake-API)                 |
+| AWS Lambdas owned                        | 20+ (three-day-process, attendance, get-client-info, LMS-lambda, intake-API + ~15 in the AI pipeline) |
 | USCIS forms wired into the intake SPA    | 7 (I-130, I-485, I-864, I-131, I-765, I-90, G-28)                                          |
 | API modules owned in core platform       | 7+ (documentType, clientFolder, courses+S3, document-type-route, company-file, baseCreateSchema) |
+| AI capabilities on the AWS pipeline       | 3 (USCIS notice notification, document triage, conversational voice agent) on one shared backbone |
 ---
 
 ## Applications Worked On
 
-### 1. USCIS Multi-Form Intake Platform (`intake-spa` + `uscis-intake-api`)
+### 1. Immigration Case AI Pipeline (`imm-aipipe`)
+
+**Jul 2026 | Meneses Law PLLC**
+
+AWS-native, Claude-powered pipeline that ingests immigration case documents and runs three Tier-1 capabilities on one shared backbone: **USCIS notice notification**, **document triage**, and a **conversational voice agent** ("Meneses Connect"). Documents drop to S3, all inference runs on Claude via Amazon Bedrock, and state lives in the firm's existing MongoDB Atlas cluster over PrivateLink. Delivered as sequenced waves (0→5), each gated by a live checkpoint, and built safety-first: a hard human-approval gate before anything reaches a client or USCIS, `SHADOW_MODE` on until an accuracy bar holds, PII-safe logging, and printed deadline dates read verbatim (never computed) and human-verified before arming.
+
+**Infrastructure & backbone**
+
+- Authored the CDK v2 (Python) app end-to-end: network, foundation, processing, notice/triage branches, notifications, API, and voice stacks — resources named/tagged per environment (`dev`/`staging`/`prod`)
+- Amended the original design to **reuse the firm's existing VPC + MongoDB Atlas (PrivateLink)** instead of standing up a new VPC and DocumentDB cluster — cutting ~$60+/mo in dev and adding only the 3 interface endpoints the shared VPC was missing (SNS, Step Functions, CloudWatch Logs)
+- Customer-managed KMS (rotation on), SSE-KMS S3 ingest bucket with lifecycle expiry, SQS review/platform-out queues each with a DLQ, and an SNS attorney-alerts topic; per-env removal policy (RETAIN in prod so a stack delete can never destroy live case data)
+- Step Functions orchestration across ~15 single-purpose Lambdas (OCR via Textract, classify, case-match, notice-field extraction, calendar write, alert dispatch, deadline sweep, requirement match, completeness gate, reminder draft, persist, callback API)
+
+**Notice notification (Wave 3)**
+
+- Notice path: field extraction → case match → a **VerifyDeadline human gate** → calendar arming + attorney alert, all behind shadow mode, with a periodic deadline-sweep — deadline dates extracted verbatim and human-confirmed before any reminder arms
+
+**Document triage (Wave 4)**
+
+- Requirement-match + completeness gate that flags missing documents and drafts **Spanish-first** client reminders, routing low-confidence classifications to a human
+
+**Conversational voice agent — "Meneses Connect" (Wave 5, A5 POC)**
+
+- Built a Spanish-first phone agent on **AWS Connect + Lex + Polly (generative voices) + Bedrock (Claude Sonnet 5)** behind a technical no-real-calls gate for safe POC testing
+- Designed a **stepwise identity gate** (name → DOB) with ASR-tolerant matching, packet Q&A, and human escalation
+- Handled silent-call cases (voicemail / no-answer) gracefully and linked call recordings back to Mongo with clearer call-log field naming
+- **Supervised live call passed** — Spanish, stepwise identity, packet Q&A, and escalation all verified; guardrail battery ran 100% escalation / zero fabrications (Sonnet 5 required — Haiku 4.5 failed the bar)
+
+**Impact:** One shared AWS backbone serving three AI capabilities for immigration casework; VPC/Atlas reuse cut infra cost and endpoint sprawl; safety gates (human approval, shadow mode, verbatim deadline dates) enforced end-to-end; voice POC cleared a supervised live call with a 100%-escalation / zero-fabrication guardrail battery
+
+**Next:** deadline-accuracy eval bar (≥ 99.5%, zero missed deadlines in shadow) before go-live; voice consent milestone
+
+`Python 3.12` `AWS CDK v2` `AWS Step Functions` `AWS Lambda` `Amazon Bedrock (Claude)` `Amazon Textract` `AWS Connect` `Amazon Lex` `Amazon Polly` `S3` `SNS` `SQS` `KMS` `Secrets Manager` `MongoDB Atlas (PrivateLink)` `boto3` `pymongo` `Pydantic` `pytest` `GitHub Actions`
+
+---
+
+### 2. USCIS Multi-Form Intake Platform (`intake-spa` + `uscis-intake-api`)
 
 **Mar – Jun 2026 | Meneses Law PLLC**
 
@@ -52,7 +89,7 @@ Designed and built a unified intake system that collects client information once
 
 ---
 
-### 2. Three-Day Process Lambda — Document Aggregation Service
+### 3. Three-Day Process Lambda — Document Aggregation Service
 
 **Feb – Mar 2026 | Meneses Law PLLC**
 
@@ -71,7 +108,7 @@ Refactored a serverless aggregation pipeline that surfaces client OneDrive folde
 
 ---
 
-### 3. Client Documents SPA
+### 4. Client Documents SPA
 
 **Sep 2025 – Mar 2026 | Meneses Law PLLC**
 
@@ -90,7 +127,7 @@ Frontend for clients to view, request, and upload case documents into the struct
 
 ---
 
-### 4. Meneses Law Core API ("Voltron")
+### 5. Meneses Law Core API ("Voltron")
 
 **Sep 2025 – Jun 2026 | Meneses Law PLLC**
 
@@ -110,7 +147,7 @@ Core Hono-based API serving every internal SPA at the firm. Contributed modules 
 
 ---
 
-### 5. Case Type Admin Management SPA
+### 6. Case Type Admin Management SPA
 
 **Jan – Jun 2026 | Meneses Law PLLC**
 
@@ -128,7 +165,7 @@ Internal admin dashboard for defining and managing case types — the configurat
 
 ---
 
-### 6. Employee Management SPA
+### 7. Employee Management SPA
 
 **Jun 2026 | Meneses Law PLLC**
 
@@ -146,7 +183,7 @@ Internal SPA for managing the firm's employees — creating, editing, filtering,
 
 ---
 
-### 7. Universal Navbar — Stencil Web Component
+### 8. Universal Navbar — Stencil Web Component
 
 **Oct 2025 – Jan 2026 | Meneses Law PLLC**
 
@@ -163,7 +200,7 @@ Shared `<side-header>` web component built with Stencil and consumed by every in
 
 ---
 
-### 8. Learning Management System — Admin + Student + Lambda
+### 9. Learning Management System — Admin + Student + Lambda
 
 **Aug 2025 – Jan 2026 | Meneses Law PLLC**
 
@@ -194,7 +231,7 @@ Internal LMS spanning three repos: admin portal, student-facing SPA, and the AWS
 
 ---
 
-### 9. Attendance Automation Lambda
+### 10. Attendance Automation Lambda
 
 **Nov 2025 – Jan 2026 | Meneses Law PLLC**
 
@@ -211,7 +248,7 @@ Scheduled Lambda that scrapes employee attendance from a third-party portal and 
 
 ---
 
-### 10. Get Client Info Lambda
+### 11. Get Client Info Lambda
 
 **Dec 2025 | Meneses Law PLLC**
 
@@ -228,7 +265,7 @@ Lambda backing the mobile/portal client experience — presigned S3 uploads, doc
 
 ---
 
-### 11. Client Management SPA
+### 12. Client Management SPA
 
 **Oct – Nov 2025 | Meneses Law PLLC**
 
@@ -248,7 +285,7 @@ Internal SPA for browsing and managing the firm's client base — searchable, fi
 
 ---
 
-### 12. Declaration Form SPA
+### 13. Declaration Form SPA
 
 **Sep 2025 | Meneses Law PLLC**
 
@@ -276,12 +313,14 @@ Frontend:       React 18/19 | TypeScript | Vite | Tailwind CSS 4
                 Heroicons | lucide-react | Flowbite | Chart.js | Plotly | Recharts | react-hot-toast
 Web Components: Stencil (universal navbar shared across all internal SPAs)
 Backend:        Hono | Bun | Node.js 22 | Prisma | OpenAPI / Swagger
-                FastAPI | Pydantic | pypdf / xfdf (USCIS PDF generation)
+                FastAPI | Pydantic | Python 3.12 | pypdf / xfdf (USCIS PDF generation)
                 JWT (aws-jwt-verify)
-Serverless:     AWS Lambda | AWS SAM | esbuild | Puppeteer (@sparticuz/chromium)
-                Selenium (legacy, rewritten)
-AWS:            S3 | Secrets Manager | SNS | STS | Lambda | SAM
-Databases:      MongoDB | MongoDB Atlas
+Serverless:     AWS Lambda | AWS SAM | AWS CDK v2 (Python) | AWS Step Functions
+                esbuild | Puppeteer (@sparticuz/chromium) | Selenium (legacy, rewritten)
+AI / ML:        Amazon Bedrock (Claude Sonnet 5) | Amazon Textract (OCR)
+                AWS Connect | Amazon Lex | Amazon Polly (conversational voice agent)
+AWS:            S3 | Secrets Manager | SNS | SQS | KMS | STS | Lambda | SAM | CDK | Step Functions
+Databases:      MongoDB | MongoDB Atlas (PrivateLink)
 Microsoft:      Microsoft Graph | OneDrive API | Azure Identity
 Email/Comms:    Mailchimp Transactional | SNS push notifications
 Testing:        Vitest | Playwright | Testing Library
@@ -305,6 +344,7 @@ _All listed below are actively in progress — currently studying for and schedu
 
 | Date                | Project                          | Key Contribution                                                                                |
 | ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Jul 2026            | Immigration Case AI Pipeline (`imm-aipipe`) | AWS-native Claude pipeline: notice notification + document triage + Spanish-first voice agent, CDK v2 + Step Functions, VPC/Atlas reuse |
 | Mar – Jun 2026      | USCIS Multi-Form Intake Platform | 7-form intake SPA (added I-90 + I-765), card-grid landing, reactive I-864 allocator, per-form PDF pipeline |
 | Jun 2026            | Employee Management SPA          | Supervisor + role org structure, role filtering, inactive-employee restore flow                  |
 | Feb – Mar 2026      | Three-Day Process Lambda         | `folder_templates` as single source of truth, relation-aware doc filtering                      |
@@ -320,4 +360,4 @@ _All listed below are actively in progress — currently studying for and schedu
 
 ---
 
-_Last updated: June 2026 | 12 projects documented_
+_Last updated: July 2026 | 13 projects documented_
