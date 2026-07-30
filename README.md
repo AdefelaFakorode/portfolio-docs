@@ -39,15 +39,28 @@ AWS-native, Claude-powered pipeline that ingests immigration case documents and 
 **Conversational voice agent — "Meneses Connect" (Wave 5, A5 POC)**
 
 - Built a Spanish-first phone agent on **AWS Connect + Lex + Polly (generative voices) + Bedrock (Claude Sonnet 5)** behind a technical no-real-calls gate for safe POC testing
-- Designed a **stepwise identity gate** (name → DOB) with ASR-tolerant matching, packet Q&A, and human escalation
+- Designed a **stepwise identity gate** (name → DOB) with ASR-tolerant matching (spoken es/en date parsing), packet Q&A, and human escalation
 - Handled silent-call cases (voicemail / no-answer) gracefully and linked call recordings back to Mongo with clearer call-log field naming
 - **Supervised live call passed** — Spanish, stepwise identity, packet Q&A, and escalation all verified; guardrail battery ran 100% escalation / zero fabrications (Sonnet 5 required — Haiku 4.5 failed the bar)
 
-**Impact:** One shared AWS backbone serving three AI capabilities for immigration casework; VPC/Atlas reuse cut infra cost and endpoint sprawl; safety gates (human approval, shadow mode, verbatim deadline dates) enforced end-to-end; voice POC cleared a supervised live call with a 100%-escalation / zero-fabrication guardrail battery
+**Voice agent v2 — migration from Lex to Deepgram (Jul 2026)**
 
-**Next:** deadline-accuracy eval bar (≥ 99.5%, zero missed deadlines in shadow) before go-live; voice consent milestone
+- Re-architected the in-call leg off Amazon Lex onto **Deepgram's Voice Agent API** for natural turn-taking and barge-in, keeping AWS Connect as the telephony front door (number, consent notice, call recording, dispositions all unchanged)
+- Built a **media relay service** (FastAPI on WebSockets, deploy target Fargate) bridging **Twilio Media Streams ↔ Deepgram** — μ-law 8 kHz passthrough both directions, no transcoding, with Twilio request-signature validation
+- Kept the LLM on **our own Bedrock** rather than Deepgram's managed model (model id never hardcoded), via a dedicated IAM principal scoped to `bedrock:InvokeModel` on Anthropic models only — verified least-privilege by testing that S3, Secrets Manager and IAM are all denied
+- **Identity verification moved into code, not the model**: the agent starts each call holding *no* case data and must call a client-side `verify_identity` function; the relay runs the deterministic name/DOB match and only then injects the approved packet via `UpdatePrompt` — so a prompt-injected or misbehaving agent has nothing to leak
+- Solved per-call correlation by carrying the client id in **SIP headers** through a Twilio SIP domain (Connect external voice transfer → `SipHeader_*` → `<Parameter>` → stream), after establishing that a plain PSTN transfer cannot carry metadata
+- Extracted the identity matcher into `shared/` so the Lex and Deepgram paths run one implementation instead of two that drift — proven safe by the existing suite passing unchanged
+- Wrote a **synthesized-caller test harness** that drives the real relay/Deepgram/Bedrock with no telephony, catching four defects before any client could hear them (agent verifying then never delivering the message; no opening greeting; both identity factors demanded at once; an invalid Settings field that killed sessions at start)
+- Hardened against failures only real phone calls expose: agent can now hang up (previously left the line open), three identity attempts instead of two (phone audio garbles names), no dead air on unclear speech, and neutral wording before verification so it never sounds like it accepted a wrong name
+- Diagnosed non-obvious platform behaviour with controlled experiments — Twilio **trial accounts silently refuse Media Streams** (TwiML fetched, stream never opened, zero errors logged), isolated by serving `<Say>` from the same account
+- **520+ unit tests**; verified live on real calls: identity confirmed in code then message delivered, an impostor refused, escalation queuing a staff callback, and voicemail detected and hung up on without disclosing case detail
 
-`Python 3.12` `AWS CDK v2` `AWS Step Functions` `AWS Lambda` `Amazon Bedrock (Claude)` `Amazon Textract` `AWS Connect` `Amazon Lex` `Amazon Polly` `S3` `SNS` `SQS` `KMS` `Secrets Manager` `MongoDB Atlas (PrivateLink)` `boto3` `pymongo` `Pydantic` `pytest` `GitHub Actions`
+**Impact:** One shared AWS backbone serving three AI capabilities for immigration casework; VPC/Atlas reuse cut infra cost and endpoint sprawl; safety gates (human approval, shadow mode, verbatim deadline dates) enforced end-to-end; voice agent re-platformed to a natural-conversation stack while keeping identity verification in deterministic code rather than trusting the model
+
+**Next:** deadline-accuracy eval bar (≥ 99.5%, zero missed deadlines in shadow) before go-live; Connect→Twilio SIP handoff (pending AWS quota); Fargate deployment; guardrail battery re-validation against Deepgram transcripts
+
+`Python 3.12` `AWS CDK v2` `AWS Step Functions` `AWS Lambda` `Amazon Bedrock (Claude)` `Amazon Textract` `AWS Connect` `Amazon Lex` `Amazon Polly` `Deepgram Voice Agent` `Twilio Media Streams` `FastAPI` `WebSockets` `S3` `SNS` `SQS` `KMS` `IAM` `Secrets Manager` `MongoDB Atlas (PrivateLink)` `boto3` `pymongo` `Pydantic` `pytest` `GitHub Actions`
 
 ---
 
@@ -344,7 +357,7 @@ _All listed below are actively in progress — currently studying for and schedu
 
 | Date                | Project                          | Key Contribution                                                                                |
 | ------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Jul 2026            | Immigration Case AI Pipeline (`imm-aipipe`) | AWS-native Claude pipeline: notice notification + document triage + Spanish-first voice agent, CDK v2 + Step Functions, VPC/Atlas reuse |
+| Jul 2026            | Immigration Case AI Pipeline (`imm-aipipe`) | AWS-native Claude pipeline: notice notification + document triage + Spanish-first voice agent, CDK v2 + Step Functions, VPC/Atlas reuse; re-platformed the voice agent onto Deepgram + Twilio Media Streams with identity verification enforced in code |
 | Mar – Jun 2026      | USCIS Multi-Form Intake Platform | 7-form intake SPA (added I-90 + I-765), card-grid landing, reactive I-864 allocator, per-form PDF pipeline |
 | Jun 2026            | Employee Management SPA          | Supervisor + role org structure, role filtering, inactive-employee restore flow                  |
 | Feb – Mar 2026      | Three-Day Process Lambda         | `folder_templates` as single source of truth, relation-aware doc filtering                      |
